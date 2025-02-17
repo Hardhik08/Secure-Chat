@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Chat by Hardhik</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .gradient-bg {
+            background: linear-gradient(-45deg, #0f172a, #1e293b, #334155, #475569);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-enter {
+            animation: messageSlide 0.3s ease-out;
+        }
+
+        @keyframes messageSlide {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen p-4 flex items-center justify-center">
+    <div class="w-full max-w-2xl space-y-6">
+        <!-- Main Container -->
+        <div class="glass-panel rounded-2xl p-6 space-y-6">
+            <!-- Registration Section -->
+            <div id="registerSection" class="space-y-4">
+                <div class="text-center">
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                        Secure Glass Chat
+                    </h1>
+                    <p class="text-gray-300 mt-2">End-to-end encrypted communication</p>
+                </div>
+                
+                <div class="space-y-3">
+                    <input type="text" id="userId" placeholder="Enter your unique ID"
+                        class="w-full glass-panel rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+                    <button onclick="registerUser ()" 
+                        class="w-full bg-gradient-to-r from-cyan-500/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-600 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-[1.02]">
+                        Register
+                    </button>
+                </div>
+            </div>
+
+            <!-- Request Section -->
+            <div id="requestSection" class="hidden space-y-4">
+                <div class="text-center">
+                    <p class="text-gray-300">Send a connection request to another user:</p>
+                    <input type="text" id="receiverId" placeholder="Enter receiver's unique ID"
+                        class="w-full glass-panel rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+                </div>
+                <button onclick="sendRequest()" 
+                    class="w-full bg-gradient-to-r from-cyan-500/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-600 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-[1.02]">
+                    Send Request
+                </button>
+            </div>
+
+            <!-- Request Notification Section -->
+            <div id="notificationSection" class="hidden space-y-4">
+                <div class="text-center">
+                    <p class="text-gray-300" id="requestMessage"></p>
+                </div>
+                <button onclick="acceptRequest()" 
+                    class="w-full bg-gradient-to-r from-green-500/80 to-emerald-600/80 hover:from-green-500 hover:to-emerald-600 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-[1.02]">
+                    Accept Request
+                </button>
+            </div>
+
+            <!-- Chat Section -->
+            <div id="chatSection" class="hidden space-y-4">
+                <div class="h-96 bg-gray-900/30 rounded-xl p-4 overflow-y-auto space-y-3" id="chatBox"></div>
+                
+                <div class="flex gap-3">
+                    <input type="text" id="chatInput" placeholder="Type your message..."
+                        class="flex-1 glass-panel rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                        onkeypress="handleKeyPress(event)">
+                    <button onclick="sendMessage()" 
+                        class="glass-panel bg-gradient-to-r from-cyan-500/80 to-blue-600/80 hover:from-cyan-500 hover:to-blue-600 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-[1.02]">
+                        Send
+                    </button>
+                </div>
+                
+                <button onclick="closeChat()" 
+                    class="w-full bg-gradient-to-r from-red-500/80 to-pink-600/80 hover:from-red-500 hover:to-pink-600 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-[1.02]">
+                    End Chat
+                </button>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="fixed bottom-4 right-4 glass-panel px-6 py-3 rounded-lg text-gray-300 hidden"></div>
+    </div>
+
+    <script>
+        var socket = io();
+        var currentReceiver = null;
+        var currentUser  = null;
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = `fixed bottom-4 right-4 glass-panel px-6 py-3 rounded-lg text-gray-300 transition-all ${type} hidden`;
+            toast.classList.remove("hidden");
+            setTimeout(() => toast.classList.add("hidden"), 3000);
+        }
+
+        function registerUser () {
+            const userId = document.getElementById("userId").value.trim();
+            if (!userId) {
+                showToast("Please enter your ID!", 'error');
+                return;
+            }
+            socket.emit("register", { user_id: userId });
+            currentUser  = userId;
+        }
+
+        socket.on("registration_success", data => {
+            showToast(`✅ Successfully registered as ${data.user_id}`, 'success');
+            document.getElementById("registerSection").classList.add("hidden");
+            document.getElementById("requestSection").classList.remove("hidden");
+        });
+
+        function sendRequest() {
+            const receiverId = document.getElementById("receiverId").value.trim();
+            if (!currentUser  || !receiverId) {
+                showToast("Please enter both IDs!", 'error');
+                return;
+            }
+
+            socket.emit("send_request", { sender_id: currentUser , receiver_id: receiverId });
+        }
+
+        socket.on("request_sent", data => {
+            if (data.success) {
+                showToast("📨 Request sent successfully!", 'success');
+            } else {
+                showToast("❌ Receiver not available!", 'error');
+            }
+        });
+
+        socket.on("receive_request", data => {
+            currentReceiver = data.sender_id;
+            document.getElementById("requestSection").classList.add("hidden");
+            document.getElementById("notificationSection").classList.remove("hidden");
+            document.getElementById("requestMessage").innerHTML = `
+                <div class="text-cyan-400 font-semibold">Incoming Request</div>
+                <div class="text-gray-300">From: ${data.sender_id}</div>
+            `;
+        });
+
+        function acceptRequest() {
+            if (!currentReceiver || !currentUser ) return;
+            socket.emit("accept_request", { 
+                sender_id: currentReceiver, 
+                receiver_id: currentUser  
+            });
+        }
+
+        socket.on("request_accepted", () => {
+            showToast("🔗 Chat connection established!", 'success');
+            document.getElementById("notificationSection").classList.add("hidden");
+            document.getElementById("chatSection").classList.remove("hidden");
+        });
+
+        function sendMessage() {
+            const message = document.getElementById("chatInput").value.trim();
+            if (!message) return;
+
+            socket.emit("send_message", { 
+                sender_id: currentUser , 
+                receiver_id: currentReceiver, 
+                message: message 
+            });
+
+            // Add message to chat box
+            const messageElement = document.createElement("div");
+            messageElement.className = "message-enter glass-panel p-3 rounded-lg";
+            messageElement.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div class="text-cyan-400 font-medium">You</div>
+                    <div class="text-gray-300 text-sm">${new Date().toLocaleTimeString()}</div>
+                </div>
+                <div class="text-gray-100 mt-1">${message}</div>
+            `;
+            document.getElementById("chatBox").appendChild(messageElement);
+            document.getElementById("chatInput").value = "";
+            
+            // Scroll to bottom
+            document.getElementById("chatBox").scrollTop = document.getElementById("chatBox").scrollHeight;
+        }
+
+        socket.on("receive_message", data => {
+            if (data.sender_id === currentUser ) return;
+
+            const messageElement = document.createElement("div");
+            messageElement.className = "message-enter glass-panel p-3 rounded-lg";
+            messageElement.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div class="text-blue-400 font-medium">${data.sender_id}</div>
+                    <div class="text-gray-300 text-sm">${new Date().toLocaleTimeString()}</div>
+                </div>
+                <div class="text-gray-100 mt-1">${data.message}</div>
+            `;
+            document.getElementById("chatBox").appendChild(messageElement);
+            
+            // Scroll to bottom
+            document.getElementById("chatBox").scrollTop = document.getElementById("chatBox").scrollHeight;
+        });
+
+        function handleKeyPress(event) {
+            if (event.key === "Enter") sendMessage();
+        }
+
+        function closeChat() {
+            if (!currentUser  || !currentReceiver) return;
+            socket.emit("close_chat", { 
+                user1: currentUser , 
+                user2: currentReceiver 
+            });
+        }
+
+        socket.on("chat_closed", data => {
+            const chatBox = document.getElementById("chatBox");
+            chatBox.innerHTML = `
+                <div class="text-center text-gray-400 py-4">
+                    🔒 Chat history encrypted
+                </div>
+            `;
+            
+            data.encrypted_chat.forEach(m => {
+                const encryptedElement = document.createElement("div");
+                encryptedElement.className = "glass-panel p-3 rounded-lg mb-2";
+                encryptedElement.innerHTML = `
+                    <div class="text-sm text-gray-400">${m.sender}</div>
+                    <div class="text-xs font-mono text-gray-500 truncate">${m.message}</div>
+                `;
+                chatBox.appendChild(encryptedElement);
+            });
+            
+            showToast("🔒 Chat closed and encrypted", 'success');
+            document.getElementById("chatSection").classList.add("hidden");
+            document.getElementById("requestSection").classList.remove("hidden");
+        });
+    </script>
+</body>
+</html>
